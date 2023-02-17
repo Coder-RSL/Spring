@@ -7,7 +7,7 @@ import java.net.URL;
 public class SpringApplicationContext {
     private Class confifClass;
 
-    public SpringApplicationContext(Class confifClass) {
+    public SpringApplicationContext(Class confifClass){
         this.confifClass = confifClass;
 
         //解析配置类
@@ -27,11 +27,30 @@ public class SpringApplicationContext {
 //相对路径（classpath） target里的文件
 
         File file =new File(resource.getFile());
-        System.out.println(file);
+
         if(file.isDirectory()){
             File[] files = file.listFiles();
             for(File f:files){
-                System.out.println(f);
+                //把我们得到的字符串f的路径，转换为我们需要的字符串
+                String absolutePath = f.getAbsolutePath();
+                if(absolutePath.endsWith(".class")){
+                    String classNmae = absolutePath.substring(absolutePath.indexOf("com"), absolutePath.indexOf(".class"));
+
+                    classNmae = classNmae.replace("\\", ".");
+
+
+                    try {
+                        Class<?> aClass = classLoader.loadClass(classNmae);
+                        if(aClass.isAnnotationPresent(Component.class)){//isAnnotationPresent用于判断一个类、方法、字段等是否被某个特定注解所修饰。
+                            //表示当前这个类是一个Bean
+                            //创建一个Bean对象
+
+                        }
+                    } catch (ClassNotFoundException e) {
+                        e.printStackTrace();
+                    }
+
+                }
             }
         }
     }
