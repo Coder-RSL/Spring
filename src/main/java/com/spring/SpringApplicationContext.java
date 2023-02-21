@@ -1,44 +1,89 @@
 package com.spring;
 
+import com.spring.Interface.BeanNameAware;
+import com.spring.Interface.BeanPostProcessor;
+import com.spring.Interface.InitializingBean;
+import com.spring.anno.*;
 import org.springframework.context.annotation.Bean;
 
 import java.io.File;
-import java.lang.annotation.Annotation;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
-import java.util.Collection;
-import java.util.Enumeration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.DoubleStream;
 
 public class SpringApplicationContext {
-    private Class confifClass;
+    private Class configClass;
 
     private ConcurrentHashMap<String,Object> singletonObjects = new ConcurrentHashMap<>();//单例池
     private ConcurrentHashMap<String,BeanDefinition> beanDefinitionMap = new ConcurrentHashMap<>();//主要是存储整个系统Bean的定义
+    private List<BeanPostProcessor> beanPostProcessorList =new ArrayList<>();
 
-    public SpringApplicationContext(Class confifClass){
-        this.confifClass = confifClass;
+    public SpringApplicationContext(Class configClass){
+        this.configClass = configClass;
 
         //解析配置类
         //ComponentScan注解------>扫描路径----->扫描--->Beandefinition--->BeanDefinitionMap
-        scan(confifClass);
-        
-        //
+        scan(configClass);
         ConcurrentHashMap.KeySetView<String, BeanDefinition> keys = beanDefinitionMap.keySet();
         for(String beanName: keys){
             BeanDefinition beanDefinition = beanDefinitionMap.get(beanName);
             if(beanDefinition.getScope().equals("singleton")){//找出单例bean
-                Object bean = createBean(beanDefinition);
-
+                Object bean = createBean(beanName,beanDefinition);
+                singletonObjects.put(beanName,bean);//存入单例池中
             }
         }
 
     }
 
-    public Object createBean(BeanDefinition beanDefinition){
+    public Object createBean(String beanName,BeanDefinition beanDefinition){
         Class clazz = beanDefinition.getClazz();
+
+
         try {
-            Object instance = clazz.getDeclaredConstructor().newInstance();
+
+            Object instance = clazz.getDeclaredConstructor().newInstance();//获取实例
+            //依赖注入
+            Field[] declaredFields = clazz.getDeclaredFields();
+            for (Field declaredField : declaredFields) {
+                if(declaredField.isAnnotationPresent(Autowired.class)){
+                    //基于属性的信息
+                    String name = declaredField.getName();
+                    Object bean = getBean(name);//从单例池种寻找
+
+                    declaredField.setAccessible(true);//访问控制机制，强制访问私有成员（字段、方法、构造函数等），并修改其值。
+                    declaredField.set(instance,bean);
+                }
+            }
+
+            //Aware回调
+            if(instance instanceof BeanNameAware){
+                ((BeanNameAware)instance).setBeanName(beanName);//强制将BeanName传入
+            }
+
+            //BeanPostProcessor初始化前
+            for (BeanPostProcessor beanPostProcessor : beanPostProcessorList) {
+                instance  = beanPostProcessor.postProcessBeforeInitialization(instance, beanName);
+            }
+
+            //初始化
+            if(instance instanceof InitializingBean){
+                try{
+                    ((InitializingBean)instance).afterPropertiesSet();//调用初始化方法，不会管你里面有什么
+                }catch (Exception e){
+                    e.printStackTrace();
+                }
+            }
+
+            //BeanPostProcessor初始化后
+            for (BeanPostProcessor beanPostProcessor : beanPostProcessorList) {
+                instance  = beanPostProcessor.postProcessAfterInitialization(instance, beanName);
+            }
+
             return instance;
         } catch (InstantiationException e) {
             e.printStackTrace();
@@ -90,6 +135,13 @@ public class SpringApplicationContext {
 
                             //解析类，判断当前的Bean是单例Bean还是prototype 的bean
 
+                            //BeanPostProcessor处理
+                            boolean assignableFrom = BeanPostProcessor.class.isAssignableFrom(clazz);
+                            if(assignableFrom){
+                                BeanPostProcessor instance =(BeanPostProcessor) clazz.getDeclaredConstructor().newInstance();
+                                beanPostProcessorList.add(instance);
+                            }
+
                             //BeanDefinition
                             Component componentAnnotation = clazz.getDeclaredAnnotation(Component.class);
                             String baenName =componentAnnotation.value();
@@ -108,6 +160,14 @@ public class SpringApplicationContext {
                         }
                     } catch (ClassNotFoundException e) {
                         e.printStackTrace();
+                    } catch (InstantiationException e) {
+                        e.printStackTrace();
+                    } catch (InvocationTargetException e) {
+                        e.printStackTrace();
+                    } catch (NoSuchMethodException e) {
+                        e.printStackTrace();
+                    } catch (IllegalAccessException e) {
+                        e.printStackTrace();
                     }
 
                 }
@@ -124,13 +184,13 @@ public class SpringApplicationContext {
             }
             else{
                 //创建一个Bean对象
-                Object bean = createBean(beanDefinition);
+                Object bean = createBean(beanName,beanDefinition);
                 return bean;//非单例则创建
             }
         }else{
             //不存在对应的Bean
+            System.out.println(beanName+"不存在");
             throw new NullPointerException();
         }
-
     }
 }
